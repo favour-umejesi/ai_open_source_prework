@@ -19,6 +19,7 @@ class GameClient {
         
         // WebSocket
         this.socket = null;
+        this.connectionTimeout = null;
         
         // Movement
         this.pressedKeys = new Set();
@@ -56,25 +57,56 @@ class GameClient {
     }
     
     connectToServer() {
-        this.socket = new WebSocket('wss://codepath-mmorg.onrender.com');
+        console.log('Attempting to connect to game server...');
+        console.log('Server URL: wss://codepath-mmorg.onrender.com');
         
-        this.socket.onopen = () => {
-            console.log('Connected to game server');
-            this.sendJoinGame();
-        };
+        try {
+            this.socket = new WebSocket('wss://codepath-mmorg.onrender.com');
+            
+            this.socket.onopen = () => {
+                console.log('✅ Connected to game server successfully!');
+                if (this.connectionTimeout) {
+                    clearTimeout(this.connectionTimeout);
+                    this.connectionTimeout = null;
+                }
+                this.sendJoinGame();
+            };
+            
+            this.socket.onmessage = (event) => {
+                console.log('Received message from server:', event.data);
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleServerMessage(data);
+                } catch (e) {
+                    console.error('Error parsing server message:', e);
+                }
+            };
+            
+            this.socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+            
+            this.socket.onclose = (event) => {
+                console.log('Disconnected from game server. Code:', event.code, 'Reason:', event.reason);
+                // Try to reconnect after 3 seconds
+                setTimeout(() => {
+                    console.log('Attempting to reconnect...');
+                    this.connectToServer();
+                }, 3000);
+            };
+        } catch (error) {
+            console.error('Failed to create WebSocket connection:', error);
+        }
         
-        this.socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            this.handleServerMessage(data);
-        };
-        
-        this.socket.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
-        
-        this.socket.onclose = () => {
-            console.log('Disconnected from game server');
-        };
+        // Set a timeout to detect if connection fails
+        this.connectionTimeout = setTimeout(() => {
+            console.error('Connection timeout - server may be down');
+            console.log('This could mean:');
+            console.log('1. The server is down');
+            console.log('2. The URL is incorrect');
+            console.log('3. Network/firewall issues');
+            console.log('4. The server is overloaded');
+        }, 10000);
     }
     
     sendJoinGame() {
@@ -83,19 +115,30 @@ class GameClient {
             username: 'Favour'
         };
         
-        this.socket.send(JSON.stringify(joinMessage));
+        console.log('Sending join game message:', joinMessage);
+        
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify(joinMessage));
+        } else {
+            console.error('WebSocket is not open. Ready state:', this.socket?.readyState);
+        }
     }
     
     handleServerMessage(data) {
+        console.log('Handling server message:', data);
         switch (data.action) {
             case 'join_game':
                 if (data.success) {
+                    console.log('Successfully joined game! Player ID:', data.playerId);
                     this.myPlayerId = data.playerId;
                     this.players = data.players;
                     this.avatars = data.avatars;
                     this.myPlayer = this.players[this.myPlayerId];
+                    console.log('My player data:', this.myPlayer);
                     this.centerViewportOnPlayer();
                     this.loadAvatarImages();
+                } else {
+                    console.error('Failed to join game:', data.error);
                 }
                 break;
             case 'players_moved':
